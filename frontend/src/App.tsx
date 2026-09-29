@@ -6,11 +6,12 @@ import { MobileDrawer } from './components/MobileDrawer';
 import { LandingHero } from './components/LandingHero';
 import { BorrowerProver, type FinancialWitnessInputs } from './components/BorrowerProver';
 import { ZKPipeline, type ProvingPhase } from './components/ZKPipeline';
-import { VerifierLedger, type VerificationOutcome } from './components/VerifierLedger';
+import { VerifierLedger } from './components/VerifierLedger';
 import { LoanQuoteEngine } from './components/LoanQuoteEngine';
 import { LenderDashboard } from './components/LenderDashboard';
 import { DualStateAudit } from './components/DualStateAudit';
 import { CircuitDocs } from './components/CircuitDocs';
+import { invokeVerifyCreditPassport, type VerificationOutcome } from './services/circuitService';
 import { useWallet } from './hooks/useWallet';
 import { useContractState } from './hooks/useContractState';
 import { type SupportedNetwork, getNetworkConfig, getExplorerContractUrl } from './lib/networkConfig';
@@ -30,6 +31,7 @@ export const App: React.FC = () => {
     telemetry,
     networkRevocationNotice,
     clearRevocationNotice,
+    connectedApi,
   } = useWallet(activeNetwork);
 
   const { blockHeight: onChainBlockHeight, isDeployed } = useContractState(activeNetwork);
@@ -54,54 +56,29 @@ export const App: React.FC = () => {
       setProvingElapsed(Date.now() - startTime);
     }, 50);
 
-    // 1. Private Witness stage
-    await new Promise((r) => setTimeout(r, 650));
-    setProvingPhase('circuit');
+    try {
+      // Execute authentic Midnight.js circuit invocation with Compact contract, proof provider & on-chain submit
+      const outcome = await invokeVerifyCreditPassport(
+        inputs,
+        activeNetwork,
+        connectedApi,
+        (phase) => setProvingPhase(phase)
+      );
 
-    // 2. Compact ZK Circuit proof generation
-    await new Promise((r) => setTimeout(r, 950));
-    setProvingPhase('settlement');
+      clearInterval(timer);
+      setProvingElapsed(Date.now() - startTime);
+      setVerificationOutcome(outcome);
+      setVerificationCount((c) => c + 1);
 
-    // 3. On-chain settlement & commitment registration
-    await new Promise((r) => setTimeout(r, 700));
-    clearInterval(timer);
-    setProvingElapsed(Date.now() - startTime);
-    setProvingPhase('verified');
-
-    // Calculate algorithmic tier according to shieldscore.compact rules
-    const score = Number(inputs.creditScore);
-    const dti = Number(inputs.debtToIncomeRatio);
-    const collateral = Number(inputs.collateralRatio);
-
-    let assignedTier: 1 | 2 | 3 = 3;
-    if (score >= 780 && dti <= 30 && collateral >= 200) {
-      assignedTier = 1;
-    } else if (score >= 720 && dti <= 38 && collateral >= 150) {
-      assignedTier = 2;
+      // Scroll down smoothly to Verifier state
+      setTimeout(() => {
+        document.getElementById('verifier-section')?.scrollIntoView({ behavior: 'smooth' });
+      }, 400);
+    } catch (err: any) {
+      clearInterval(timer);
+      setProvingPhase('idle');
+      alert(err.message || 'Circuit execution failed');
     }
-
-    // Authentic on-chain cryptographic commitment and txId mined on Midnight Preview
-    const onChainTxId = '004cdb5a3a3e7c16323d5ede450806030c55c1884ae112e76bb28236300e57c104';
-    const onChainCommitment = '0x4bb06f8e4e3a7715d201d573d0aa423762e55dabd61a2c02278fa56cc6d294e0';
-
-    const currentHeight = onChainBlockHeight || telemetry.blockHeight || 1016024;
-
-    const outcome: VerificationOutcome = {
-      isVerified: true,
-      riskTier: assignedTier,
-      commitment: onChainCommitment,
-      timestamp: new Date().toISOString(),
-      txId: onChainTxId,
-      blockHeight: currentHeight,
-    };
-
-    setVerificationOutcome(outcome);
-    setVerificationCount((c) => c + 1);
-
-    // Scroll down smoothly to Verifier state
-    setTimeout(() => {
-      document.getElementById('verifier-section')?.scrollIntoView({ behavior: 'smooth' });
-    }, 400);
   };
 
   // Always reset window scroll on tab change to prevent blank-screen viewport misalignment

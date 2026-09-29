@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import wasm from 'vite-plugin-wasm';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    wasm(),
+  ],
   server: {
     port: 5173,
     host: true,
@@ -10,5 +14,8 @@ export default defineConfig({
   build: {
     target: 'esnext',
     outDir: 'dist',
+  },
+  optimizeDeps: {
+    exclude: ['@midnight-ntwrk/onchain-runtime-v3', '@midnight-ntwrk/compact-runtime'],
   },
 });

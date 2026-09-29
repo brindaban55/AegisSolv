@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { DAppConnectorAPI, DAppConnectorWalletAPI, ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
+import { indexerNetworkProvider } from '@midnight-ntwrk/midnight-js-network-provider';
 import {
   type WalletAccountState,
   type WalletProviderType,
   connectWalletProvider,
   discoverMidnightWallets,
   type DiscoveredWallet,
+  type ConnectedWalletSession,
 } from '../lib/walletConnector';
 import { type SupportedNetwork, getNetworkConfig } from '../lib/networkConfig';
 
@@ -14,18 +17,25 @@ export interface NetworkTelemetry {
   latencyMs: number;
 }
 
+export interface ExtendedWalletState extends WalletAccountState {
+  connectedApi: ConnectedAPI | DAppConnectorWalletAPI | null;
+  networkProvider: any | null;
+}
+
 export function useWallet(activeNetwork: SupportedNetwork = 'preview') {
   const netConfig = getNetworkConfig(activeNetwork);
   const activeNetRef = useRef(activeNetwork);
   activeNetRef.current = activeNetwork;
 
-  const [walletState, setWalletState] = useState<WalletAccountState>({
+  const [walletState, setWalletState] = useState<ExtendedWalletState>({
     isConnected: false,
     isConnecting: false,
     address: null,
     dustBalance: null,
     provider: null,
     error: null,
+    connectedApi: null,
+    networkProvider: null,
   });
 
   const [networkRevocationNotice, setNetworkRevocationNotice] = useState<string | null>(null);
@@ -37,7 +47,7 @@ export function useWallet(activeNetwork: SupportedNetwork = 'preview') {
     latencyMs: 34,
   });
 
-  // Discover injected wallets on mount
+  // Discover injected wallets on mount using DAppConnectorAPI
   useEffect(() => {
     setDiscoveredWallets(discoverMidnightWallets());
   }, []);
@@ -54,6 +64,8 @@ export function useWallet(activeNetwork: SupportedNetwork = 'preview') {
           dustBalance: null,
           provider: null,
           error: null,
+          connectedApi: null,
+          networkProvider: null,
         });
         const prevNetName = walletState.address.startsWith('mn_addr_preview') ? 'Midnight Preview' : 'Midnight Preprod';
         setNetworkRevocationNotice(
@@ -67,9 +79,10 @@ export function useWallet(activeNetwork: SupportedNetwork = 'preview') {
     }
   }, [activeNetwork, netConfig.addressPrefix, netConfig.networkName, walletState.isConnected, walletState.address]);
 
-  // Poll live telemetry from active network's GraphQL Indexer
+  // Poll live telemetry using Midnight Indexer Network Provider
   useEffect(() => {
     let isMounted = true;
+    const netProvider = indexerNetworkProvider(netConfig.indexerUrl, netConfig.indexerWsUrl);
 
     async function fetchTelemetry() {
       const start = performance.now();
@@ -105,21 +118,23 @@ export function useWallet(activeNetwork: SupportedNetwork = 'preview') {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [netConfig.indexerUrl, activeNetwork]);
+  }, [netConfig.indexerUrl, netConfig.indexerWsUrl, activeNetwork]);
 
   const connect = useCallback(async (providerType: WalletProviderType) => {
     setWalletState((prev) => ({ ...prev, isConnecting: true, error: null }));
     setNetworkRevocationNotice(null);
     try {
       const currentNet = activeNetRef.current;
-      const { address } = await connectWalletProvider(providerType, currentNet);
+      const session: ConnectedWalletSession = await connectWalletProvider(providerType, currentNet);
       setWalletState({
         isConnected: true,
         isConnecting: false,
-        address,
+        address: session.address,
         dustBalance: '1,450 tDUST',
         provider: providerType,
         error: null,
+        connectedApi: session.connectedApi,
+        networkProvider: session.networkProvider,
       });
     } catch (err: any) {
       setWalletState((prev) => ({
@@ -138,17 +153,23 @@ export function useWallet(activeNetwork: SupportedNetwork = 'preview') {
       dustBalance: null,
       provider: null,
       error: null,
+      connectedApi: null,
+      networkProvider: null,
     });
+    setNetworkRevocationNotice(null);
+  }, []);
+
+  const clearRevocationNotice = useCallback(() => {
     setNetworkRevocationNotice(null);
   }, []);
 
   return {
     ...walletState,
+    connect,
+    disconnect,
     discoveredWallets,
     telemetry,
     networkRevocationNotice,
-    clearRevocationNotice: () => setNetworkRevocationNotice(null),
-    connect,
-    disconnect,
+    clearRevocationNotice,
   };
 }
