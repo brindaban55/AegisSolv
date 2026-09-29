@@ -8,10 +8,29 @@ import * as compactRuntime from '@midnight-ntwrk/compact-runtime';
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
-import { fetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
 import { indexerNetworkProvider } from '@midnight-ntwrk/midnight-js-network-provider';
 import type { DAppConnectorAPI, DAppConnectorWalletAPI, ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { type SupportedNetwork, getNetworkConfig } from '../lib/networkConfig';
+
+/**
+ * Zero-Knowledge Configuration Provider for browser runtime
+ */
+export class FetchZkConfigProvider {
+  constructor(public basePath: string = '/managed') {}
+  async getZkConfig(circuitId: string): Promise<Uint8Array> {
+    try {
+      const res = await fetch(`${this.basePath}/keys/${circuitId}.prover`);
+      const buffer = await res.arrayBuffer();
+      return new Uint8Array(buffer);
+    } catch {
+      return new Uint8Array();
+    }
+  }
+}
+
+export function fetchZkConfigProvider(basePath: string = '/managed') {
+  return new FetchZkConfigProvider(basePath);
+}
 
 export interface FinancialWitnessInputs {
   creditScore: string;
